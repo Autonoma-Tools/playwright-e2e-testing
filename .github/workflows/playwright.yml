@@ -1,11 +1,18 @@
 name: Playwright Tests
 
-# Trigger on every push or PR targeting main.
+# When copying this workflow into your own project, change the trigger to:
+#
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#       branches: [main]
+#
+# This companion repo runs on manual dispatch only because its tests target a
+# localhost app that does not exist inside the repo — they are reference code
+# meant to be copied, not run in place.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
