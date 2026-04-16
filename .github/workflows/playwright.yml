@@ -1,0 +1,87 @@
+name: Playwright Tests
+
+# Trigger on every push or PR targeting main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+
+    # Run four parallel shards. Playwright's --shard flag automatically
+    # partitions tests across shards, so total wall-clock time drops ~4x.
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
+
+    steps:
+      # 1. Pull the repo.
+      - uses: actions/checkout@v4
+
+      # 2. Node — matches our local dev version.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # 3. Install dependencies deterministically (respects package-lock.json).
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Cache the Playwright browser binaries keyed on the @playwright/test
+      #    version pinned in package-lock.json. A bump to @playwright/test
+      #    invalidates the cache automatically, so we never run a test against
+      #    a mismatched browser build.
+      - name: Get Playwright version
+        id: playwright-version
+        run: |
+          VERSION=$(node -e "console.log(require('./package-lock.json').packages['node_modules/@playwright/test'].version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      # 5. Only download browsers on cache miss. `--with-deps` also installs
+      #    the system libraries (libnss3, libasound2, ...) browsers need.
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps
+
+      # 5b. Even on a cache hit we need the OS-level deps.
+      - name: Install Playwright system deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps
+
+      # 6. Run this shard's slice of the test suite.
+      - name: Run Playwright tests
+        run: npx playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+
+      # 7. On failure, keep the report and traces around for 30 days so a
+      #    human can inspect what actually broke.
+      - name: Upload Playwright report
+        if: ${{ !cancelled() && failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.shardIndex }}
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Upload test results
+        if: ${{ !cancelled() && failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.shardIndex }}
+          path: test-results/
+          retention-days: 30
